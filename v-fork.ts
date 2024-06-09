@@ -7,24 +7,36 @@ import { TVForkCreateOptions, TVForkMessages, TVForkParentMessages, TVForkRunScr
 export class VFork extends EventEmitter {
   private result: ChildProcess
   private timeout: NodeJS.Timeout
-  private options: TVForkCreateOptions
 
-  constructor(opts = { killOnError: false, listenerCount: 100 } as TVForkCreateOptions) {
+  constructor(
+    private options = { restartOnKill: true, killOnError: false, listenerCount: 100 } as TVForkCreateOptions,
+  ) {
     super()
-    this.options = opts
     this.setMaxListeners(this.options.listenerCount)
     this.createFork()
   }
 
   public createFork(): void {
-    // this.killFork()
+    if (this.result) {
+      this.killFork()
+    }
+
     this.result = fork('./child.js')
     this.forkOn()
+    this.emit(listeners.ready)
   }
 
   public runScript(sourceScript: string, opts = {} as TVForkRunScriptOptions): void {
-    if (this.result.killed) {
-      throw new Error('fork ölmüş')
+    if (opts.restartFork) {
+      this.restartFork()
+    } else {
+      if (this.result.killed) {
+        if (this.options.restartOnKill) {
+          this.restartFork()
+        } else {
+          throw new Error('fork ölmüş')
+        }
+      }
     }
 
     this.sendDataToChild({
@@ -39,15 +51,20 @@ export class VFork extends EventEmitter {
     // }
   }
 
-  public resetFork(): void {
+  public restartFork(): void {
+    this.emit(listeners.restartingFork)
     this.createFork()
   }
 
   public killFork(): boolean {
-    this.emit(listeners.closingFork)
+    this.emit(listeners.killingFork)
     this.removeAllForkListeners()
     const status = this.result ? this.result?.kill() : true
-    this.emit(listeners.closedFork)
+    if (this.result.killed) {
+      this.emit(listeners.killedFork)
+    } else {
+      console.log('fork kapatılamadı')
+    }
     return status
   }
 
@@ -75,7 +92,10 @@ export class VFork extends EventEmitter {
     clearTimeout(this.timeout)
 
     if (this.options.killOnError) {
-      // this.killFork()
+      this.killFork()
+      if (this.options.restartOnKill) {
+        this.restartFork()
+      }
     }
   }
 
@@ -83,7 +103,10 @@ export class VFork extends EventEmitter {
     clearTimeout(this.timeout)
 
     if (this.options.killOnError) {
-      // this.killFork()
+      this.killFork()
+      if (this.options.restartOnKill) {
+        this.restartFork()
+      }
     }
   }
 }

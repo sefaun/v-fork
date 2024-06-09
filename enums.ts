@@ -1,6 +1,8 @@
 export const listeners = {
+  ready: 'ready',
   forkMessage: 'forkMessage',
-  closingFork: 'closingFork',
-  closedFork: 'closedFork',
+  restartingFork: 'restartingFork',
+  killingFork: 'killingFork',
+  killedFork: 'killedFork',
   errorFork: 'errorFork',
 } as const

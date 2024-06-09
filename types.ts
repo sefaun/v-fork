@@ -1,10 +1,12 @@
 export type TVForkCreateOptions = {
-  killOnError: boolean
-  listenerCount: number
+  restartOnKill?: boolean
+  killOnError?: boolean
+  listenerCount?: number
 }
 
 export type TVForkRunScriptOptions = {
-  timeout: number
+  timeout?: number
+  restartFork?: boolean
 }
 
 export type TVForkParentMessages = {
