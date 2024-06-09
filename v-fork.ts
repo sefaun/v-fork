@@ -7,11 +7,11 @@ import { TVForkCreateOptions, TVForkMessages, TVForkParentMessages, TVForkRunScr
 export class VFork extends EventEmitter {
   private result: ChildProcess
   private timeout: NodeJS.Timeout
+  private options: TVForkCreateOptions
 
-  constructor(
-    private options = { restartOnKill: true, killOnError: false, listenerCount: 100 } as TVForkCreateOptions,
-  ) {
+  constructor(opts = { restartOnKill: true, killOnError: false, listenerCount: 100 } as TVForkCreateOptions) {
     super()
+    this.options = opts
     this.setMaxListeners(this.options.listenerCount)
     this.createFork()
   }
