@@ -1,112 +1,95 @@
 import type { ChildProcess } from 'child_process'
 import { fork } from 'child_process'
 import { EventEmitter } from 'events'
-import { listeners } from './enums'
-import { TVForkCreateOptions, TVForkMessages, TVForkParentMessages, TVForkRunScriptOptions } from './types'
+import { TVForkMessages, TVForkParentMessages } from './types'
+
 
 export class VFork extends EventEmitter {
-  private result: ChildProcess
-  private timeout: NodeJS.Timeout
-  private options: TVForkCreateOptions
 
-  constructor(opts = { restartOnKill: true, killOnError: false, listenerCount: 100 } as TVForkCreateOptions) {
+  vFork: ChildProcess
+  public forkEvents = {
+    ready: 'ready',
+    restart: 'restart',
+    message: 'message',
+    unexpected: 'unexpected'
+  } as const
+  private childProcessUnexpectedEvents = {
+    error: 'error',
+    exit: 'exit',
+    close: 'close',
+    disconnect: 'disconnect',
+  } as const
+  private childProcessEvents = {
+    message: 'message',
+    ...this.childProcessUnexpectedEvents
+  } as const
+
+  constructor(private readonly options = { maxListeners: 100 }) {
     super()
-    this.options = opts
-    this.setMaxListeners(this.options.listenerCount)
-    this.createFork()
+    this.setMaxListeners(this.options.maxListeners)
   }
 
-  public createFork(): void {
-    if (this.result) {
-      this.killFork()
-    }
-
-    this.result = fork('./child.js')
-    this.forkOn()
-    this.emit(listeners.ready)
+  public createFork = (): void => {
+    this.vFork = fork('./child.js')
+    this.onFork()
+    this.emit(this.forkEvents.ready)
   }
 
-  public runScript(sourceScript: string, opts = {} as TVForkRunScriptOptions): void {
-    if (opts.restartFork) {
-      this.restartFork()
-    } else {
-      if (this.result.killed) {
-        if (this.options.restartOnKill) {
-          this.restartFork()
-        } else {
-          throw new Error('fork ölmüş')
-        }
-      }
-    }
+  private onFork = (): void => {
+    // https://nodejs.org/api/child_process.html
+    this.vFork.on(this.childProcessEvents.message, this.forkOnMessage)
+    this.vFork.on(this.childProcessUnexpectedEvents.error, (err: Error) => this.forkUnexpected(this.childProcessUnexpectedEvents.error, err))
+    this.vFork.on(this.childProcessUnexpectedEvents.exit, (code: number, signal: NodeJS.Signals) => this.forkUnexpected(this.childProcessUnexpectedEvents.exit, { code, signal }))
+    this.vFork.on(this.childProcessUnexpectedEvents.close, (code: number, signal: NodeJS.Signals) => this.forkUnexpected(this.childProcessUnexpectedEvents.close, { code, signal }))
+    this.vFork.on(this.childProcessUnexpectedEvents.disconnect, () => this.forkUnexpected(this.childProcessUnexpectedEvents.disconnect))
+  }
 
-    this.sendDataToChild({
-      eval: true,
+  public runScript = (sourceScript: string): void => {
+    this.sendDataToFork({
       sourceScript,
     })
-
-    // if (opts.timeout) {
-    //   this.timeout = setTimeout(() => {
-    //     this.killFork()
-    //   }, opts.timeout)
-    // }
   }
 
-  public restartFork(): void {
-    this.emit(listeners.restartingFork)
+  private sendDataToFork = (message: TVForkParentMessages): void => {
+    this.vFork.send(message)
+  }
+
+  public killFork = (): boolean => {
+    const isKilled = this.vFork.kill()
+    this.removeExistAllListeners()
+    return isKilled
+  }
+
+  public restartFork = (): void => {
+    this.killFork()
+    this.emit(this.forkEvents.restart)
     this.createFork()
   }
 
-  public killFork(): boolean {
-    this.emit(listeners.killingFork)
-    this.removeAllForkListeners()
-    const status = this.result ? this.result?.kill() : true
-    if (this.result.killed) {
-      this.emit(listeners.killedFork)
-    } else {
-      console.log('fork kapatılamadı')
+  private removeExistAllListeners = (): void => {
+    this.removeForkListeners()
+  }
+
+  private removeForkListeners = (): void => {
+    this.vFork.removeAllListeners()
+  }
+
+  private forkOnMessage = (message: TVForkMessages): void => {
+    if (!message.status) {
+      this.emit(this.forkEvents.unexpected, message)
+      return
     }
-    return status
+    this.emit(this.forkEvents.message, message)
   }
 
-  private sendDataToChild(message: TVForkParentMessages): void {
-    this.result.send(message)
-  }
-
-  private forkOn(): void {
-    //Get Process Messages
-    this.result.on('message', (message: TVForkMessages) => {
-      this.emit(listeners.forkMessage, message)
-    })
-    //Catch Process Stop
-    this.result.on('disconnect', this.forkOnDisconnect)
-    //Catch Process Error
-    this.result.on('error', this.forkOnError)
-  }
-
-  private removeAllForkListeners(): void {
-    this.result.removeAllListeners()
-  }
-
-  private forkOnError(error: Error): void {
-    this.emit(listeners.errorFork, error)
-    clearTimeout(this.timeout)
-
-    if (this.options.killOnError) {
-      this.killFork()
-      if (this.options.restartOnKill) {
-        this.restartFork()
-      }
-    }
-  }
-
-  private forkOnDisconnect(): void {
-    clearTimeout(this.timeout)
-
-    if (this.options.killOnError) {
-      this.killFork()
-      if (this.options.restartOnKill) {
-        this.restartFork()
-      }
-    }
+  private forkUnexpected = (_event: keyof typeof this.childProcessUnexpectedEvents, data?: any): void => {
+    this.emit(this.forkEvents.unexpected,
+      Object.assign(
+        {
+          status: false
+        },
+        data && toString.call(data) === '[object Object]' ? data : {}
+      ) as TVForkMessages
+    )
   }
 }

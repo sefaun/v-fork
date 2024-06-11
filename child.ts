@@ -7,22 +7,17 @@ function sendMessage(value: TVForkMessages) {
 process.on('message', (message: TVForkParentMessages): void => {
   console.log('Message from parent:', message)
 
-  if (message.healthCheck) {
-    sendMessage({ status: true })
-    return
-  }
-
-  if (message.eval) {
-    const data = {
+  if (message.sourceScript) {
+    var data = {
       message: null,
-      finishScript: true,
       status: true,
-      error: undefined,
+      error: undefined
     }
 
     try {
       data.message = eval(message.sourceScript)
-    } catch (error) {
+    }
+    catch (error) {
       data.status = false
       data.error = error
     }
